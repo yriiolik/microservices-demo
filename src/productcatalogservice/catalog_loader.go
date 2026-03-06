@@ -34,11 +34,61 @@ func loadCatalog(catalog *pb.ListProductsResponse) error {
 	catalogMutex.Lock()
 	defer catalogMutex.Unlock()
 
+	// MySQL takes priority when configured
+	if os.Getenv("MYSQL_ADDR") != "" && mysqlDB != nil {
+		return loadCatalogFromMySQL(catalog)
+	}
+
 	if os.Getenv("ALLOYDB_CLUSTER_NAME") != "" {
 		return loadCatalogFromAlloyDB(catalog)
 	}
 
 	return loadCatalogFromLocalFile(catalog)
+}
+
+func loadCatalogFromMySQL(catalog *pb.ListProductsResponse) error {
+	log.Info("loading catalog from MySQL...")
+
+	rows, err := mysqlDB.Query("SELECT id, name, description, picture, price_usd_currency_code, price_usd_units, price_usd_nanos FROM products")
+	if err != nil {
+		return fmt.Errorf("query products from MySQL: %w", err)
+	}
+	defer rows.Close()
+
+	catalog.Products = catalog.Products[:0]
+	for rows.Next() {
+		product := &pb.Product{PriceUsd: &pb.Money{}}
+		if err := rows.Scan(&product.Id, &product.Name, &product.Description,
+			&product.Picture, &product.PriceUsd.CurrencyCode, &product.PriceUsd.Units,
+			&product.PriceUsd.Nanos); err != nil {
+			return fmt.Errorf("scan product row: %w", err)
+		}
+
+		catRows, err := mysqlDB.Query(
+			"SELECT c.name FROM categories c INNER JOIN product_categories pc ON c.id = pc.category_id WHERE pc.product_id = ?",
+			product.Id,
+		)
+		if err != nil {
+			log.Warnf("failed to get categories for %s: %v", product.Id, err)
+			product.Categories = []string{}
+		} else {
+			var categories []string
+			for catRows.Next() {
+				var name string
+				if err := catRows.Scan(&name); err != nil {
+					break
+				}
+				categories = append(categories, name)
+			}
+			catRows.Close()
+			product.Categories = categories
+		}
+
+		catalog.Products = append(catalog.Products, product)
+	}
+
+	log.Infof("successfully loaded %d products from MySQL", len(catalog.Products))
+	return nil
 }
 
 func loadCatalogFromLocalFile(catalog *pb.ListProductsResponse) error {

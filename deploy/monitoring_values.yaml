@@ -1,0 +1,45 @@
+# Compatibility fix for OrbStack/local K8s cAdvisor labels
+# OrbStack's cAdvisor exposes empty image/container labels which breaks
+# kube-prometheus-stack recording rules and Grafana dashboards that filter
+# on image!="" and container!=""
+prometheusOperator:
+  admissionWebhooks:
+    enabled: false
+    patch:
+      enabled: false
+  tls:
+    enabled: false
+
+kubelet:
+  enabled: true
+  serviceMonitor:
+    cAdvisorMetricRelabelings:
+      # FIX: OrbStack cAdvisor provides image="" (empty) for all metrics.
+      # Recording rules and Grafana queries filter on image!="" which
+      # causes all data to be dropped. Set image to a non-empty placeholder
+      # for actual pod metrics (where pod label is non-empty).
+      - action: replace
+        sourceLabels: [image, pod]
+        separator: ;
+        regex: '^;(.+)$'
+        targetLabel: image
+        replacement: 'orbstack'
+
+      # FIX: OrbStack cAdvisor provides container="" (empty) for pod-level
+      # metrics. Grafana queries filter on container!="". Extract the last
+      # path segment from the cgroup id as a non-empty container identifier.
+      - action: replace
+        sourceLabels: [container, id]
+        separator: ;
+        regex: '^;.*/([^/]+)$'
+        targetLabel: container
+        replacement: '$1'
+
+prometheus:
+  prometheusSpec:
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+grafana:
+  adminPassword: admin

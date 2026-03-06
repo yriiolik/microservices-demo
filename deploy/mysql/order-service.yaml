@@ -1,0 +1,295 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orderservice-code
+data:
+  server.py: |
+    import json
+    import os
+    import random
+    import string
+    import time
+    from decimal import Decimal
+    from datetime import datetime
+
+    import pymysql
+    from flask import Flask, jsonify, request
+
+    app = Flask(__name__)
+
+    DB_CONFIG = {
+        'host': os.environ.get('MYSQL_HOST', 'mysql-boutique'),
+        'port': int(os.environ.get('MYSQL_PORT', '3306')),
+        'user': os.environ.get('MYSQL_USER', 'boutique'),
+        'password': os.environ.get('MYSQL_PASSWORD', 'boutique123'),
+        'database': os.environ.get('MYSQL_DATABASE', 'boutique'),
+        'charset': 'utf8mb4',
+        'cursorclass': pymysql.cursors.DictCursor,
+    }
+
+    PRODUCT_IDS = [
+        'OLJCESPC7Z', '66VCHSJNUP', '1YMWWN1N4O', 'L9ECAV7KIM',
+        '2ZYFJ3GM2N', '0PUK6V6EV0', 'LS4PSXUNUM', '9SIQT8TOJO', '6E92ZMYYFZ'
+    ]
+
+    def get_db():
+        return pymysql.connect(**DB_CONFIG)
+
+    def serialize(obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        if isinstance(obj, bytes):
+            return obj.decode('utf-8')
+        return obj
+
+    def serialize_row(row):
+        if row is None:
+            return None
+        return {k: serialize(v) for k, v in row.items()}
+
+    @app.route('/health')
+    def health():
+        try:
+            conn = get_db()
+            conn.ping()
+            conn.close()
+            return jsonify({'status': 'ok'})
+        except Exception as e:
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    @app.route('/api/orders', methods=['POST'])
+    def create_order():
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            user_id = random.randint(1, 1000)
+            order_number = 'ORD-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+
+            cursor.execute(
+                "INSERT INTO orders (user_id, order_number, total_amount, status) VALUES (%s, %s, %s, 'pending')",
+                (user_id, order_number, 0)
+            )
+            order_id = cursor.lastrowid
+
+            total = 0
+            num_items = random.randint(1, 5)
+            for _ in range(num_items):
+                product_id = random.choice(PRODUCT_IDS)
+                quantity = random.randint(1, 3)
+                unit_price = round(random.uniform(5.0, 200.0), 2)
+                item_total = round(unit_price * quantity, 2)
+                total += item_total
+                cursor.execute(
+                    "INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price) VALUES (%s, %s, %s, %s, %s)",
+                    (order_id, product_id, quantity, unit_price, item_total)
+                )
+
+            cursor.execute("UPDATE orders SET total_amount = %s WHERE id = %s", (total, order_id))
+
+            payment_method = random.choice(['credit_card', 'paypal', 'debit_card'])
+            txn_id = 'TXN-' + ''.join(random.choices(string.digits, k=12))
+            cursor.execute(
+                "INSERT INTO payments (order_id, payment_method, transaction_id, amount, status, paid_at) VALUES (%s, %s, %s, %s, 'completed', NOW())",
+                (order_id, payment_method, txn_id, total)
+            )
+
+            carrier = random.choice(['fedex', 'ups', 'usps', 'dhl'])
+            tracking = 'SHIP-' + ''.join(random.choices(string.digits, k=10))
+            cursor.execute(
+                "INSERT INTO shipping_records (order_id, tracking_number, carrier, status) VALUES (%s, %s, %s, 'pending')",
+                (order_id, tracking, carrier)
+            )
+
+            cursor.execute(
+                "INSERT INTO audit_logs (user_id, action, entity_type, entity_id, ip_address) VALUES (%s, 'create_order', 'order', %s, %s)",
+                (user_id, str(order_id), request.remote_addr or '10.0.0.1')
+            )
+
+            conn.commit()
+            return jsonify({'order_id': order_id, 'order_number': order_number, 'total': total}), 201
+        except Exception as e:
+            conn.rollback()
+            return jsonify({'error': str(e)}), 500
+        finally:
+            cursor.close()
+            conn.close()
+
+    @app.route('/api/orders/<int:order_id>', methods=['GET'])
+    def get_order(order_id):
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT * FROM orders WHERE id = %s", (order_id,))
+            order = cursor.fetchone()
+            if not order:
+                return jsonify({'error': 'not found'}), 404
+
+            cursor.execute("SELECT * FROM order_items WHERE order_id = %s", (order_id,))
+            items = cursor.fetchall()
+
+            result = serialize_row(order)
+            result['items'] = [serialize_row(item) for item in items]
+            return jsonify(result)
+        finally:
+            cursor.close()
+            conn.close()
+
+    @app.route('/api/analytics/product-sales', methods=['GET'])
+    def product_sales_report():
+        """Slow analytics query - naturally >2s due to correlated subqueries on large unindexed tables."""
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            start = time.time()
+            cursor.execute("""
+                SELECT
+                  p.id,
+                  p.name,
+                  (SELECT COUNT(*)
+                   FROM order_items oi
+                   INNER JOIN orders o ON oi.order_id = o.id
+                   WHERE oi.product_id = p.id
+                     AND o.status IN ('paid', 'shipped', 'delivered')) as sale_count,
+                  (SELECT IFNULL(SUM(oi.total_price), 0)
+                   FROM order_items oi
+                   INNER JOIN orders o ON oi.order_id = o.id
+                   WHERE oi.product_id = p.id
+                     AND o.status IN ('paid', 'shipped', 'delivered')) as total_revenue,
+                  (SELECT COUNT(DISTINCT o.user_id)
+                   FROM order_items oi
+                   INNER JOIN orders o ON oi.order_id = o.id
+                   WHERE oi.product_id = p.id) as unique_buyers,
+                  (SELECT AVG(pr.rating)
+                   FROM product_reviews pr
+                   WHERE pr.product_id = p.id) as avg_rating,
+                  (SELECT COUNT(*)
+                   FROM product_reviews pr
+                   WHERE pr.product_id = p.id) as review_count,
+                  (SELECT COUNT(DISTINCT al.user_id)
+                   FROM audit_logs al
+                   WHERE al.entity_type = 'product'
+                     AND al.entity_id = p.id) as unique_audited_users,
+                  (SELECT COUNT(*)
+                   FROM audit_logs al
+                   WHERE al.entity_id = p.id) as total_audit_count,
+                  (SELECT COUNT(*)
+                   FROM shipping_records sr
+                   INNER JOIN orders o ON sr.order_id = o.id
+                   INNER JOIN order_items oi ON o.id = oi.order_id
+                   WHERE oi.product_id = p.id
+                     AND sr.status = 'delivered') as delivered_shipments,
+                  (SELECT COUNT(*)
+                   FROM payments py
+                   INNER JOIN orders o ON py.order_id = o.id
+                   INNER JOIN order_items oi ON o.id = oi.order_id
+                   WHERE oi.product_id = p.id
+                     AND py.status = 'refunded') as refund_count,
+                  (SELECT COUNT(*)
+                   FROM order_items oi
+                   INNER JOIN orders o ON oi.order_id = o.id
+                   WHERE oi.product_id = p.id
+                     AND o.created_at > DATE_SUB(NOW(), INTERVAL 30 DAY)) as recent_30d_sales,
+                  (SELECT IFNULL(AVG(oi.total_price), 0)
+                   FROM order_items oi
+                   INNER JOIN orders o ON oi.order_id = o.id
+                   WHERE oi.product_id = p.id
+                     AND o.status != 'pending') as avg_item_price
+                FROM products p
+                ORDER BY total_revenue DESC
+            """)
+            results = cursor.fetchall()
+            elapsed = time.time() - start
+
+            return jsonify({
+                'query_time_seconds': round(elapsed, 3),
+                'result_count': len(results),
+                'data': [serialize_row(r) for r in results]
+            })
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+        finally:
+            cursor.close()
+            conn.close()
+
+    if __name__ == '__main__':
+        app.run(host='0.0.0.0', port=8080)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orderservice
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: orderservice
+  template:
+    metadata:
+      labels:
+        app: orderservice
+    spec:
+      containers:
+      - name: orderservice
+        image: python:3.11-slim
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          pip install --no-cache-dir flask pymysql 2>&1 | tail -1 && \
+          echo "Starting orderservice..." && \
+          python /app/server.py
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: MYSQL_HOST
+          value: "mysql-boutique"
+        - name: MYSQL_PORT
+          value: "3306"
+        - name: MYSQL_USER
+          value: "boutique"
+        - name: MYSQL_PASSWORD
+          value: "boutique123"
+        - name: MYSQL_DATABASE
+          value: "boutique"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        configMap:
+          name: orderservice-code
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orderservice
+spec:
+  type: ClusterIP
+  selector:
+    app: orderservice
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http

@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-data
+data:
+  02-data.sql: |
+    USE boutique;
+
+    -- Categories
+    INSERT INTO categories (name, description) VALUES
+    ('accessories', 'Accessories and jewelry'),
+    ('clothing', 'Clothing and apparel'),
+    ('tops', 'Tops and shirts'),
+    ('footwear', 'Shoes and footwear'),
+    ('hair', 'Hair care products'),
+    ('beauty', 'Beauty and cosmetics'),
+    ('decor', 'Home decoration'),
+    ('home', 'Home and living'),
+    ('kitchen', 'Kitchen and dining');
+
+    -- Products (matching products.json exactly)
+    INSERT INTO products (id, name, description, picture, price_usd_currency_code, price_usd_units, price_usd_nanos) VALUES
+    ('OLJCESPC7Z', 'Sunglasses', 'Add a modern touch to your outfits with these sleek aviator sunglasses.', '/static/img/products/sunglasses.jpg', 'USD', 19, 990000000),
+    ('66VCHSJNUP', 'Tank Top', 'Perfectly cropped cotton tank, with a scooped neckline.', '/static/img/products/tank-top.jpg', 'USD', 18, 990000000),
+    ('1YMWWN1N4O', 'Watch', 'This gold-tone stainless steel watch will work with most of your outfits.', '/static/img/products/watch.jpg', 'USD', 109, 990000000),
+    ('L9ECAV7KIM', 'Loafers', 'A neat addition to your summer wardrobe.', '/static/img/products/loafers.jpg', 'USD', 89, 990000000),
+    ('2ZYFJ3GM2N', 'Hairdryer', 'This lightweight hairdryer has 3 heat and speed settings. It''s perfect for travel.', '/static/img/products/hairdryer.jpg', 'USD', 24, 990000000),
+    ('0PUK6V6EV0', 'Candle Holder', 'This small but intricate candle holder is an excellent gift.', '/static/img/products/candle-holder.jpg', 'USD', 18, 990000000),
+    ('LS4PSXUNUM', 'Salt & Pepper Shakers', 'Add some flavor to your kitchen.', '/static/img/products/salt-and-pepper-shakers.jpg', 'USD', 18, 490000000),
+    ('9SIQT8TOJO', 'Bamboo Glass Jar', 'This bamboo glass jar can hold 57 oz (1.7 l) and is perfect for any kitchen.', '/static/img/products/bamboo-glass-jar.jpg', 'USD', 5, 490000000),
+    ('6E92ZMYYFZ', 'Mug', 'A simple mug with a mustard interior.', '/static/img/products/mug.jpg', 'USD', 8, 990000000);
+
+    -- Product-Category relationships
+    INSERT INTO product_categories (product_id, category_id) VALUES
+    ('OLJCESPC7Z', 1),
+    ('66VCHSJNUP', 2),
+    ('66VCHSJNUP', 3),
+    ('1YMWWN1N4O', 1),
+    ('L9ECAV7KIM', 4),
+    ('2ZYFJ3GM2N', 5),
+    ('2ZYFJ3GM2N', 6),
+    ('0PUK6V6EV0', 7),
+    ('0PUK6V6EV0', 8),
+    ('LS4PSXUNUM', 9),
+    ('9SIQT8TOJO', 9),
+    ('6E92ZMYYFZ', 9);
+
+    -- Create exporter user for Prometheus mysqld-exporter
+    CREATE USER IF NOT EXISTS 'exporter'@'%' IDENTIFIED BY 'exporter_pass' WITH MAX_USER_CONNECTIONS 3;
+    GRANT PROCESS, REPLICATION CLIENT, SELECT ON *.* TO 'exporter'@'%';
+
+    -- Create application user
+    CREATE USER IF NOT EXISTS 'boutique'@'%' IDENTIFIED BY 'boutique123';
+    GRANT ALL PRIVILEGES ON boutique.* TO 'boutique'@'%';
+
+    FLUSH PRIVILEGES;

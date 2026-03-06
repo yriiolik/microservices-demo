@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-schema
+data:
+  01-schema.sql: |
+    USE boutique;
+
+    -- 1. products (productcatalogservice core table)
+    CREATE TABLE products (
+      id VARCHAR(32) NOT NULL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      description TEXT,
+      picture VARCHAR(500),
+      price_usd_currency_code VARCHAR(3) NOT NULL DEFAULT 'USD',
+      price_usd_units BIGINT NOT NULL DEFAULT 0,
+      price_usd_nanos INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 2. categories
+    CREATE TABLE categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 3. product_categories (many-to-many)
+    CREATE TABLE product_categories (
+      product_id VARCHAR(32) NOT NULL,
+      category_id INT NOT NULL,
+      PRIMARY KEY (product_id, category_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 4. users
+    CREATE TABLE users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(100) NOT NULL,
+      email VARCHAR(200) NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      phone VARCHAR(20),
+      status TINYINT NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 5. user_addresses
+    CREATE TABLE user_addresses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      address_line1 VARCHAR(255) NOT NULL,
+      address_line2 VARCHAR(255),
+      city VARCHAR(100) NOT NULL,
+      state VARCHAR(100),
+      zip_code VARCHAR(20),
+      country VARCHAR(50) NOT NULL DEFAULT 'US',
+      is_default TINYINT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 6. orders (NO INDEX on user_id, status, created_at - for slow query)
+    CREATE TABLE orders (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      order_number VARCHAR(64) NOT NULL,
+      total_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      shipping_address_id INT,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 7. order_items (NO INDEX on order_id, product_id - for slow query)
+    CREATE TABLE order_items (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      order_id BIGINT NOT NULL,
+      product_id VARCHAR(32) NOT NULL,
+      quantity INT NOT NULL DEFAULT 1,
+      unit_price DECIMAL(10,2) NOT NULL,
+      total_price DECIMAL(10,2) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 8. payments (NO INDEX on order_id - for slow query)
+    CREATE TABLE payments (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      order_id BIGINT NOT NULL,
+      payment_method VARCHAR(50) NOT NULL,
+      transaction_id VARCHAR(100),
+      amount DECIMAL(12,2) NOT NULL,
+      currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      paid_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 9. shipping_records
+    CREATE TABLE shipping_records (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      order_id BIGINT NOT NULL,
+      tracking_number VARCHAR(100),
+      carrier VARCHAR(50),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      estimated_delivery DATE,
+      shipped_at DATETIME NULL,
+      delivered_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 10. coupons
+    CREATE TABLE coupons (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      code VARCHAR(50) NOT NULL UNIQUE,
+      discount_type VARCHAR(20) NOT NULL,
+      discount_value DECIMAL(10,2) NOT NULL,
+      min_purchase DECIMAL(10,2) DEFAULT 0.00,
+      max_uses INT DEFAULT 0,
+      used_count INT DEFAULT 0,
+      valid_from DATETIME,
+      valid_until DATETIME,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 11. product_reviews (NO INDEX on product_id, user_id - for slow query)
+    CREATE TABLE product_reviews (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      product_id VARCHAR(32) NOT NULL,
+      user_id INT NOT NULL,
+      rating TINYINT NOT NULL,
+      title VARCHAR(200),
+      content TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    -- 12. audit_logs (NO INDEX on any business column - for slow query)
+    CREATE TABLE audit_logs (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT,
+      action VARCHAR(50) NOT NULL,
+      entity_type VARCHAR(50) NOT NULL,
+      entity_id VARCHAR(64),
+      old_value TEXT,
+      new_value TEXT,
+      ip_address VARCHAR(45),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

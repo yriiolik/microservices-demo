@@ -1,0 +1,122 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-loadgen-code
+data:
+  loadgen.py: |
+    import os
+    import random
+    import sys
+    import time
+
+    import requests
+
+    ORDER_SERVICE_URL = os.environ.get('ORDER_SERVICE_URL', 'http://orderservice:8080')
+
+    def create_order():
+        try:
+            resp = requests.post(f'{ORDER_SERVICE_URL}/api/orders', timeout=10)
+            data = resp.json()
+            print(f"[ORDER] Created: status={resp.status_code} order_id={data.get('order_id', 'N/A')} total={data.get('total', 'N/A')}", flush=True)
+            return data.get('order_id')
+        except Exception as e:
+            print(f"[ORDER] Create failed: {e}", flush=True)
+            return None
+
+    def get_order(order_id):
+        try:
+            resp = requests.get(f'{ORDER_SERVICE_URL}/api/orders/{order_id}', timeout=10)
+            print(f"[ORDER] Get #{order_id}: status={resp.status_code}", flush=True)
+        except Exception as e:
+            print(f"[ORDER] Get #{order_id} failed: {e}", flush=True)
+
+    def analytics_report():
+        try:
+            print("[ANALYTICS] Triggering slow product-sales report...", flush=True)
+            resp = requests.get(f'{ORDER_SERVICE_URL}/api/analytics/product-sales', timeout=60)
+            data = resp.json()
+            qt = data.get('query_time_seconds', 'N/A')
+            rc = data.get('result_count', 'N/A')
+            print(f"[ANALYTICS] Completed: query_time={qt}s results={rc}", flush=True)
+        except Exception as e:
+            print(f"[ANALYTICS] Failed: {e}", flush=True)
+
+    def wait_for_service():
+        print("Waiting for orderservice to be ready...", flush=True)
+        for i in range(60):
+            try:
+                resp = requests.get(f'{ORDER_SERVICE_URL}/health', timeout=5)
+                if resp.status_code == 200:
+                    print("orderservice is ready!", flush=True)
+                    return True
+            except Exception:
+                pass
+            time.sleep(5)
+        print("WARNING: orderservice not ready after 5 minutes, starting anyway", flush=True)
+        return False
+
+    def main():
+        print("Order load generator starting...", flush=True)
+        wait_for_service()
+
+        order_count = 0
+        max_order_id = 50000
+
+        while True:
+            order_id = create_order()
+            order_count += 1
+            if order_id:
+                max_order_id = max(max_order_id, order_id)
+
+            if random.random() < 0.3:
+                rid = random.randint(1, max_order_id)
+                get_order(rid)
+
+            if order_count % 20 == 0:
+                analytics_report()
+
+            time.sleep(random.uniform(2, 5))
+
+    if __name__ == '__main__':
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-loadgenerator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-loadgenerator
+  template:
+    metadata:
+      labels:
+        app: order-loadgenerator
+    spec:
+      containers:
+      - name: loadgen
+        image: python:3.11-slim
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          pip install --no-cache-dir requests 2>&1 | tail -1 && \
+          echo "Starting order load generator..." && \
+          python /app/loadgen.py
+        env:
+        - name: ORDER_SERVICE_URL
+          value: "http://orderservice:8080"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        volumeMounts:
+        - name: app-code
+          mountPath: /app
+      volumes:
+      - name: app-code
+        configMap:
+          name: order-loadgen-code

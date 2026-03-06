@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"fmt"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/productcatalogservice/genproto"
+	_ "github.com/go-sql-driver/mysql"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -49,6 +51,8 @@ var (
 	port = "3550"
 
 	reloadCatalog bool
+
+	mysqlDB *sql.DB
 )
 
 func init() {
@@ -94,6 +98,51 @@ func main() {
 		log.Infof("extra latency enabled (duration: %v)", extraLatency)
 	} else {
 		extraLatency = time.Duration(0)
+	}
+
+	// Initialize MySQL connection if configured
+	if mysqlAddr := os.Getenv("MYSQL_ADDR"); mysqlAddr != "" {
+		mysqlUser := os.Getenv("MYSQL_USER")
+		if mysqlUser == "" {
+			mysqlUser = "boutique"
+		}
+		mysqlPassword := os.Getenv("MYSQL_PASSWORD")
+		if mysqlPassword == "" {
+			mysqlPassword = "boutique123"
+		}
+		mysqlDatabase := os.Getenv("MYSQL_DATABASE")
+		if mysqlDatabase == "" {
+			mysqlDatabase = "boutique"
+		}
+		dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true&timeout=5s", mysqlUser, mysqlPassword, mysqlAddr, mysqlDatabase)
+
+		log.Infof("Connecting to MySQL at %s...", mysqlAddr)
+		var err error
+		mysqlDB, err = sql.Open("mysql", dsn)
+		if err != nil {
+			log.Fatalf("failed to open MySQL connection: %v", err)
+		}
+		mysqlDB.SetMaxOpenConns(10)
+		mysqlDB.SetMaxIdleConns(5)
+		mysqlDB.SetConnMaxLifetime(5 * time.Minute)
+
+		// Retry ping until MySQL is ready (init scripts may take a few minutes)
+		for i := 0; i < 60; i++ {
+			err = mysqlDB.Ping()
+			if err == nil {
+				log.Info("Successfully connected to MySQL")
+				break
+			}
+			log.Warnf("MySQL not ready (attempt %d/60): %v", i+1, err)
+			time.Sleep(2 * time.Second)
+		}
+		if err != nil {
+			log.Warnf("failed to connect to MySQL after retries: %v, falling back to local catalog", err)
+			mysqlDB.Close()
+			mysqlDB = nil
+		}
+	} else {
+		log.Info("MYSQL_ADDR not set, using local product catalog")
 	}
 
 	sigs := make(chan os.Signal, 1)

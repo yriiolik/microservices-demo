@@ -1,0 +1,221 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-generate
+data:
+  03-generate.sql: |
+    USE boutique;
+
+    -- Helper numbers table for efficient cross-join data generation
+    CREATE TABLE _numbers (n INT NOT NULL);
+    INSERT INTO _numbers VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9);
+
+    -- ============================================================
+    -- Generate 1,000 users
+    -- ============================================================
+    INSERT INTO users (username, email, password_hash, phone, status)
+    SELECT
+      CONCAT('user_', t.n + 1),
+      CONCAT('user', t.n + 1, '@boutique.com'),
+      SHA2(CONCAT('password_', t.n + 1), 256),
+      CONCAT('138', LPAD(t.n + 1, 8, '0')),
+      1
+    FROM (
+      SELECT a.n * 100 + b.n * 10 + c.n AS n
+      FROM _numbers a, _numbers b, _numbers c
+    ) t
+    WHERE t.n < 1000;
+
+    -- ============================================================
+    -- Generate 2,000 user_addresses
+    -- ============================================================
+    INSERT INTO user_addresses (user_id, address_line1, city, state, zip_code, country, is_default)
+    SELECT
+      (t.n % 1000) + 1,
+      CONCAT(FLOOR(100 + RAND(t.n) * 9900), ' Main Street'),
+      ELT(1 + (t.n % 5), 'New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix'),
+      ELT(1 + (t.n % 5), 'NY', 'CA', 'IL', 'TX', 'AZ'),
+      LPAD(FLOOR(10000 + RAND(t.n + 1) * 89999), 5, '0'),
+      'US',
+      IF(t.n < 1000, 1, 0)
+    FROM (
+      SELECT a.n * 1000 + b.n * 100 + c.n * 10 + d.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d
+    ) t
+    WHERE t.n < 2000;
+
+    -- ============================================================
+    -- Generate 50,000 orders
+    -- ============================================================
+    INSERT INTO orders (user_id, order_number, total_amount, currency, status, created_at)
+    SELECT
+      (t.n % 1000) + 1,
+      CONCAT('ORD-', LPAD(t.n + 1, 8, '0')),
+      ROUND(10 + RAND(t.n) * 490, 2),
+      'USD',
+      ELT(1 + (t.n % 4), 'pending', 'paid', 'shipped', 'delivered'),
+      DATE_SUB(NOW(), INTERVAL FLOOR(RAND(t.n + 1) * 365) DAY)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 50000;
+
+    -- ============================================================
+    -- Generate 200,000 order_items (4 batches x 50,000)
+    -- ============================================================
+    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+    SELECT
+      (t.n % 50000) + 1,
+      ELT(1 + (t.n % 9), 'OLJCESPC7Z','66VCHSJNUP','1YMWWN1N4O','L9ECAV7KIM','2ZYFJ3GM2N','0PUK6V6EV0','LS4PSXUNUM','9SIQT8TOJO','6E92ZMYYFZ'),
+      1 + (t.n % 5),
+      ROUND(5 + RAND(t.n) * 200, 2),
+      ROUND((5 + RAND(t.n) * 200) * (1 + (t.n % 5)), 2)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 50000;
+
+    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+    SELECT
+      (t.n % 50000) + 1,
+      ELT(1 + ((t.n + 3) % 9), 'OLJCESPC7Z','66VCHSJNUP','1YMWWN1N4O','L9ECAV7KIM','2ZYFJ3GM2N','0PUK6V6EV0','LS4PSXUNUM','9SIQT8TOJO','6E92ZMYYFZ'),
+      1 + ((t.n + 1) % 5),
+      ROUND(5 + RAND(t.n + 100000) * 200, 2),
+      ROUND((5 + RAND(t.n + 100000) * 200) * (1 + ((t.n + 1) % 5)), 2)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 50000;
+
+    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+    SELECT
+      (t.n % 50000) + 1,
+      ELT(1 + ((t.n + 5) % 9), 'OLJCESPC7Z','66VCHSJNUP','1YMWWN1N4O','L9ECAV7KIM','2ZYFJ3GM2N','0PUK6V6EV0','LS4PSXUNUM','9SIQT8TOJO','6E92ZMYYFZ'),
+      1 + ((t.n + 2) % 5),
+      ROUND(5 + RAND(t.n + 200000) * 200, 2),
+      ROUND((5 + RAND(t.n + 200000) * 200) * (1 + ((t.n + 2) % 5)), 2)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 50000;
+
+    INSERT INTO order_items (order_id, product_id, quantity, unit_price, total_price)
+    SELECT
+      (t.n % 50000) + 1,
+      ELT(1 + ((t.n + 7) % 9), 'OLJCESPC7Z','66VCHSJNUP','1YMWWN1N4O','L9ECAV7KIM','2ZYFJ3GM2N','0PUK6V6EV0','LS4PSXUNUM','9SIQT8TOJO','6E92ZMYYFZ'),
+      1 + ((t.n + 3) % 5),
+      ROUND(5 + RAND(t.n + 300000) * 200, 2),
+      ROUND((5 + RAND(t.n + 300000) * 200) * (1 + ((t.n + 3) % 5)), 2)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 50000;
+
+    -- ============================================================
+    -- Generate 50,000 payments (1:1 with orders)
+    -- ============================================================
+    INSERT INTO payments (order_id, payment_method, transaction_id, amount, currency, status, paid_at)
+    SELECT
+      t.n + 1,
+      ELT(1 + (t.n % 3), 'credit_card', 'paypal', 'debit_card'),
+      CONCAT('TXN-', LPAD(t.n + 1, 12, '0')),
+      ROUND(10 + RAND(t.n) * 490, 2),
+      'USD',
+      ELT(1 + (t.n % 4), 'completed', 'pending', 'failed', 'refunded'),
+      DATE_SUB(NOW(), INTERVAL FLOOR(RAND(t.n + 1) * 365) DAY)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 50000;
+
+    -- ============================================================
+    -- Generate 50,000 shipping_records
+    -- ============================================================
+    INSERT INTO shipping_records (order_id, tracking_number, carrier, status, shipped_at)
+    SELECT
+      t.n + 1,
+      CONCAT('SHIP-', LPAD(t.n + 1, 10, '0')),
+      ELT(1 + (t.n % 4), 'fedex', 'ups', 'usps', 'dhl'),
+      ELT(1 + (t.n % 3), 'pending', 'shipped', 'delivered'),
+      DATE_SUB(NOW(), INTERVAL FLOOR(RAND(t.n) * 365) DAY)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 50000;
+
+    -- ============================================================
+    -- Generate 200 coupons
+    -- ============================================================
+    INSERT INTO coupons (code, discount_type, discount_value, min_purchase, max_uses, used_count, valid_from, valid_until)
+    SELECT
+      CONCAT('COUPON-', LPAD(t.n + 1, 5, '0')),
+      ELT(1 + (t.n % 2), 'percentage', 'fixed'),
+      ROUND(5 + RAND(t.n) * 45, 2),
+      ROUND(20 + RAND(t.n + 1) * 80, 2),
+      FLOOR(50 + RAND(t.n + 2) * 950),
+      FLOOR(RAND(t.n + 3) * 50),
+      DATE_SUB(NOW(), INTERVAL 30 DAY),
+      DATE_ADD(NOW(), INTERVAL 180 DAY)
+    FROM (
+      SELECT a.n * 100 + b.n * 10 + c.n AS n
+      FROM _numbers a, _numbers b, _numbers c
+    ) t
+    WHERE t.n < 200;
+
+    -- ============================================================
+    -- Generate 50,000 product_reviews
+    -- ============================================================
+    INSERT INTO product_reviews (product_id, user_id, rating, title, content, created_at)
+    SELECT
+      ELT(1 + (t.n % 9), 'OLJCESPC7Z','66VCHSJNUP','1YMWWN1N4O','L9ECAV7KIM','2ZYFJ3GM2N','0PUK6V6EV0','LS4PSXUNUM','9SIQT8TOJO','6E92ZMYYFZ'),
+      (t.n % 1000) + 1,
+      1 + (t.n % 5),
+      CONCAT('Review #', t.n + 1),
+      CONCAT('Detailed review for this product. Experience rating: ', 1 + (t.n % 5), ' stars. Product quality assessment included. Review number ', t.n + 1),
+      DATE_SUB(NOW(), INTERVAL FLOOR(RAND(t.n) * 365) DAY)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 50000;
+
+    -- ============================================================
+    -- Generate 200,000 audit_logs (2 batches x 100,000)
+    -- ============================================================
+    INSERT INTO audit_logs (user_id, action, entity_type, entity_id, ip_address, created_at)
+    SELECT
+      (t.n % 1000) + 1,
+      ELT(1 + (t.n % 6), 'login', 'view_product', 'add_to_cart', 'checkout', 'update_profile', 'create_order'),
+      ELT(1 + (t.n % 4), 'user', 'order', 'product', 'cart'),
+      ELT(1 + (t.n % 9), 'OLJCESPC7Z','66VCHSJNUP','1YMWWN1N4O','L9ECAV7KIM','2ZYFJ3GM2N','0PUK6V6EV0','LS4PSXUNUM','9SIQT8TOJO','6E92ZMYYFZ'),
+      CONCAT('10.0.', t.n % 256, '.', (t.n * 7) % 256),
+      DATE_SUB(NOW(), INTERVAL FLOOR(RAND(t.n) * 365) DAY)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 100000;
+
+    INSERT INTO audit_logs (user_id, action, entity_type, entity_id, ip_address, created_at)
+    SELECT
+      (t.n % 1000) + 1,
+      ELT(1 + ((t.n + 3) % 6), 'login', 'view_product', 'add_to_cart', 'checkout', 'update_profile', 'create_order'),
+      ELT(1 + ((t.n + 2) % 4), 'user', 'order', 'product', 'cart'),
+      ELT(1 + ((t.n + 4) % 9), 'OLJCESPC7Z','66VCHSJNUP','1YMWWN1N4O','L9ECAV7KIM','2ZYFJ3GM2N','0PUK6V6EV0','LS4PSXUNUM','9SIQT8TOJO','6E92ZMYYFZ'),
+      CONCAT('10.0.', (t.n + 50) % 256, '.', ((t.n + 50) * 7) % 256),
+      DATE_SUB(NOW(), INTERVAL FLOOR(RAND(t.n + 500000) * 365) DAY)
+    FROM (
+      SELECT a.n * 10000 + b.n * 1000 + c.n * 100 + d.n * 10 + e.n AS n
+      FROM _numbers a, _numbers b, _numbers c, _numbers d, _numbers e
+    ) t
+    WHERE t.n < 100000;
+
+    -- Cleanup helper table
+    DROP TABLE _numbers;

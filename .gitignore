@@ -18,6 +18,10 @@
 *.tfstate*
 *.tfvars
 *~
+# deploy runtime files
+deploy/.port_forward.pid
+deploy/.grafana_port_forward.pid
+deploy/.chaos_dashboard_port_forward.pid
 bin/
 build/
 Dockerfile.pip

@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+data:
+  my.cnf: |
+    [mysqld]
+    slow_query_log = 1
+    slow_query_log_file = /var/log/mysql/slow.log
+    long_query_time = 1
+    log_queries_not_using_indexes = 0
+    innodb_buffer_pool_size = 128M
+    max_connections = 100
+    max_allowed_packet = 64M
+    performance_schema = ON
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secret
+type: Opaque
+stringData:
+  root-password: "boutique123"
+  user-password: "boutique123"
+  exporter-password: "exporter_pass"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-boutique
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-boutique
+  template:
+    metadata:
+      labels:
+        app: mysql-boutique
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+          name: mysql
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: root-password
+        - name: MYSQL_DATABASE
+          value: "boutique"
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        readinessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: mysql-data
+          mountPath: /var/lib/mysql
+        - name: mysql-config
+          mountPath: /etc/mysql/conf.d/custom.cnf
+          subPath: my.cnf
+        - name: init-schema
+          mountPath: /docker-entrypoint-initdb.d/01-schema.sql
+          subPath: 01-schema.sql
+        - name: init-data
+          mountPath: /docker-entrypoint-initdb.d/02-data.sql
+          subPath: 02-data.sql
+        - name: init-generate
+          mountPath: /docker-entrypoint-initdb.d/03-generate.sql
+          subPath: 03-generate.sql
+        - name: mysql-log
+          mountPath: /var/log/mysql
+      volumes:
+      - name: mysql-data
+        emptyDir: {}
+      - name: mysql-log
+        emptyDir: {}
+      - name: mysql-config
+        configMap:
+          name: mysql-config
+      - name: init-schema
+        configMap:
+          name: mysql-init-schema
+      - name: init-data
+        configMap:
+          name: mysql-init-data
+      - name: init-generate
+        configMap:
+          name: mysql-init-generate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-boutique
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql-boutique
+  ports:
+  - port: 3306
+    targetPort: 3306
+    name: mysql
